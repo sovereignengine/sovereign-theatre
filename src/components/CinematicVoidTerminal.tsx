@@ -4,6 +4,7 @@ import { Float, Text, PerspectiveCamera, Environment, Stars, Html } from '@react
 import * as THREE from 'three';
 import { GhostTerminalHUD } from './GhostTerminalHUD';
 import { useCinematicMetabolism } from '../hooks/useCinematicMetabolism';
+import { cinematicTracer } from '../systems/CinematicTracer';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3D MESSAGE ENTITY
@@ -77,6 +78,9 @@ const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
 const Rig = ({ children, isOverdrive }: { children: React.ReactNode, isOverdrive: boolean }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
+        // INSTRUMENTATION: Audit frame jitter in real-time
+        cinematicTracer(state.clock.elapsedTime * 1000, true);
+
         if (!group.current) return;
         const factor = isOverdrive ? 0.4 : 0.1;
         group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, state.mouse.y * 1.5, 0.1);
