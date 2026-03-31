@@ -29,7 +29,10 @@ let lastTierSwitchTime = 0;
 const STABILIZATION_DELAY = 3000; // 3 seconds 
 
 // STRESS SCALING (0.0 = Dominant, 1.0 = Minimal)
-let stressFactor = 0; 
+let rawStress = 0;
+let smoothedStress = 0; 
+let lowStressStableSince = 0;
+
 export type PerformanceTier = 'DOMINANT' | 'DEGRADED' | 'MINIMAL';
 let currentTier: PerformanceTier = 'DOMINANT';
 
@@ -46,7 +49,7 @@ const dumpAudit = () => {
     sessionAudit.avg = longEMA;
     sessionAudit.worst = worstFrameEver;
     sessionAudit.totalSpikes = totalSpikeCount;
-    sessionAudit.finalStress = stressFactor;
+    sessionAudit.finalStress = smoothedStress;
     sessionAudit.duration = (Date.now() - sessionStart) / 1000;
     console.table(sessionAudit);
 };
@@ -72,29 +75,38 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
 
-    // CONTINUOUS STRESS FACTOR (0 to 1)
+    // ANTI-ALIASED STRESS FACTOR (Smooth input to avoid jitter in regulation)
     const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67));
-    stressFactor = stressFactor * 0.95 + targetStress * 0.05; // Smooth lerp
+    rawStress = rawStress * 0.95 + targetStress * 0.05; 
+    smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; // Second layer of smoothing
 
-    // HYSTERESIS & TIER LOGIC
+    // HYSTERESIS & CONFIDENCE WINDOW
     const timeSinceSwitch = now - lastTierSwitchTime;
-    const bypassCooldown = stressFactor < 0.05; // INSTANT RECOVERY BYPASS
+    
+    // CONFIDANCE WINDOW: Sustained low stress (< 0.05) for 500ms
+    if (smoothedStress < 0.05) {
+        if (lowStressStableSince === 0) lowStressStableSince = now;
+    } else {
+        lowStressStableSince = 0;
+    }
+    
+    const bypassCooldown = (lowStressStableSince !== 0 && (now - lowStressStableSince > 500)); 
 
     if (timeSinceSwitch > STABILIZATION_DELAY || bypassCooldown) {
-        // Upgrade Logic (Harder to recover, needs stability unless bypass triggered)
-        if (currentTier !== 'DOMINANT' && stressFactor < 0.1) {
+        // Upgrade Logic
+        if (currentTier !== 'DOMINANT' && smoothedStress < 0.1) {
             currentTier = 'DOMINANT';
             lastTierSwitchTime = now;
-        } else if (currentTier === 'MINIMAL' && stressFactor < 0.4) {
+        } else if (currentTier === 'MINIMAL' && smoothedStress < 0.4) {
             currentTier = 'DEGRADED';
             lastTierSwitchTime = now;
         }
 
-        // Downgrade Logic (Faster reaction to stress)
-        if (stressFactor > 0.6 && currentTier !== 'MINIMAL') {
+        // Downgrade Logic
+        if (smoothedStress > 0.6 && currentTier !== 'MINIMAL') {
             currentTier = 'MINIMAL';
             lastTierSwitchTime = now;
-        } else if (stressFactor > 0.3 && currentTier === 'DOMINANT') {
+        } else if (smoothedStress > 0.3 && currentTier === 'DOMINANT') {
             currentTier = 'DEGRADED';
             lastTierSwitchTime = now;
         }
@@ -115,14 +127,14 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
         }
     }
 
-    // EMIT REGULATION
-    onRegulate?.(stressFactor, currentTier);
+    // EMIT REGULATION: Purely smoothed signal
+    onRegulate?.(smoothedStress, currentTier);
 
     samples[index] = delta;
     index = (index + 1) % SAMPLE_SIZE;
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[PERCEPT_SLA] stress: ${stressFactor.toFixed(2)} | tier: ${currentTier} | bypass: ${bypassCooldown}`);
+        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | tier: ${currentTier} | bypass: ${bypassCooldown}`);
     }
 }

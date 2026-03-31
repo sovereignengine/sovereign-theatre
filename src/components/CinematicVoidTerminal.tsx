@@ -157,7 +157,7 @@ export const CinematicVoidTerminal: React.FC = () => {
         <div className={`fixed inset-0 bg-black overflow-hidden select-none ${isGlitching ? 'glitch-active' : ''}`}>
             {/* 3D CANVAS LAYER */}
             <div className={`absolute inset-0 z-10 ${isOverdrive ? 'animate-[shake_0.1s_infinite]' : ''}`}>
-                <Canvas dpr={[1, stress < 0.4 ? 2 : 2 - ((stress - 0.4) / 0.6) * 1.3]}>
+                <Canvas dpr={[1, stress < 0.4 ? 2 : 2 - Math.pow((stress - 0.4) / 0.6, 2) * 1.3]}>
                     <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={35} />
                     <fog attach="fog" args={['#000', 8, 15]} />
                     <Stars 
@@ -187,7 +187,8 @@ export const CinematicVoidTerminal: React.FC = () => {
                             {/* HUD INTEGRATION */}
                             <GhostTerminalHUD position={[0, -4, 2]} />
                         </Rig>
-                        {stress < 0.8 && <Environment preset={isOverdrive ? "forest" : "night"} />}
+                        {/* FX CHANNEL: Rapidly scale down environment lighting based on stress */}
+                        {(1 - Math.exp(-4 * stress)) < 0.8 && <Environment preset={isOverdrive ? "forest" : "night"} />}
                     </Suspense>
                 </Canvas>
             </div>
