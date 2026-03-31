@@ -1,45 +1,58 @@
 /**
- * CinematicTracer.ts
+ * CinematicTracer.ts V2.2 - The Temporal Control System
  * 
- * Zero-overhead frame time and jitter analyzer.
- * Uses a pre-allocated ring buffer to avoid GC churn within the render loop.
- * Tuned for 128 BPM / 432Hz determinism auditing.
+ * Evolution from passive observation to active regulation.
  */
 
-const SAMPLE_SIZE = 120; // ~2 seconds of data at 60 FPS
+const SAMPLE_SIZE = 120;
 const samples = new Float32Array(SAMPLE_SIZE);
 let lastTime = 0;
 let frameCount = 0;
 let index = 0;
 
-// Temporal Truth Engine V2.1 - Adaptive Persistence
+// Temporal Truth Persistence
 let totalSpikeCount = 0;
 let worstFrameEver = 0;
-let burstCounter = 0;
 let sessionStart = Date.now();
-let rollingAvg = 16.67;
 
-// Session Report for Post-Mortem Analysis
+// DUAL EMA BASELINING: Fast vs Slow truth
+let shortEMA = 16.67;
+let longEMA = 16.67;
+const ALPHA_SHORT = 0.1;
+const ALPHA_LONG = 0.01;
+
+// TEMPORAL CLUSTERING
+let lastSpikeTime = 0;
+let clusterStrength = 0;
+
+export type PerformanceTier = 'DOMINANT' | 'DEGRADED' | 'MINIMAL';
+let currentTier: PerformanceTier = 'DOMINANT';
+
+// Session Report
 const sessionAudit = {
     avg: 0,
     worst: 0,
     totalSpikes: 0,
-    durationSeconds: 0,
-    startTime: new Date().toISOString()
+    finalTier: 'DOMINANT' as PerformanceTier,
+    duration: 0
 };
 
-// Auto-Dump session metrics on closure
+const dumpAudit = () => {
+    sessionAudit.avg = longEMA;
+    sessionAudit.worst = worstFrameEver;
+    sessionAudit.totalSpikes = totalSpikeCount;
+    sessionAudit.finalTier = currentTier;
+    sessionAudit.duration = (Date.now() - sessionStart) / 1000;
+    console.table(sessionAudit);
+};
+
 if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', () => {
-        sessionAudit.avg = rollingAvg;
-        sessionAudit.worst = worstFrameEver;
-        sessionAudit.totalSpikes = totalSpikeCount;
-        sessionAudit.durationSeconds = (Date.now() - sessionStart) / 1000;
-        console.table(sessionAudit);
-    });
+    ['visibilitychange', 'pagehide', 'beforeunload'].forEach(evt => 
+        window.addEventListener(evt, dumpAudit)
+    );
 }
 
-export function cinematicTracer(now: number, debugMode = false) {
+export function cinematicTracer(now: number, debugMode = false, onRegulate?: (tier: PerformanceTier) => void) {
     if (!debugMode) return;
 
     if (lastTime === 0) {
@@ -50,52 +63,57 @@ export function cinematicTracer(now: number, debugMode = false) {
     const delta = now - lastTime;
     lastTime = now;
 
-    // ADAPTIVE BASELINE: Detect spikes relative to recent performance (+60% jump)
-    const threshold = Math.max(25, rollingAvg * 1.6);
+    // UPDATE EMA: Track the "Boiling Frog"
+    shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
+    longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
+
+    // DYNAMIC THRESHOLD: Adaptive based on short-term jitter
+    const threshold = Math.max(25, shortEMA * 1.6);
     
     if (delta > threshold) {
         totalSpikeCount++;
-        burstCounter++;
         if (delta > worstFrameEver) worstFrameEver = delta;
         
-        console.warn(`[SOVEREIGN_SPIKE] ${delta.toFixed(2)}ms (Threshold: ${threshold.toFixed(2)}ms). Total: ${totalSpikeCount}.`);
-        
-        // BURST DETECTION: Identify series of jitter within a single sample window
-        if (burstCounter > 3) {
-            console.error(`[SOVEREIGN_CRITICAL] JITTER_BURST_DETECTED: System stability unstable. Burst Count: ${burstCounter}.`);
+        // TEMPORAL CLUSTERING: Detect "Machine Gun Stutter"
+        const timeSinceLastSpike = now - lastSpikeTime;
+        if (timeSinceLastSpike < 120) { // Cluster if spikes happen within 120ms of each other
+            clusterStrength++;
+        } else {
+            clusterStrength = 0;
         }
+        lastSpikeTime = now;
+
+        if (debugMode) console.warn(`[SOVEREIGN_SPIKE] ${delta.toFixed(2)}ms | Cluster: ${clusterStrength}`);
+        
+        if (clusterStrength > 3) {
+            console.error(`[SOVEREIGN_CRITICAL] TEMPORAL_STORM_DETECTED: Dropping Performance Tier.`);
+            if (currentTier === 'DOMINANT') currentTier = 'DEGRADED';
+            else if (currentTier === 'DEGRADED') currentTier = 'MINIMAL';
+            onRegulate?.(currentTier);
+        }
+    }
+
+    // BOILING FROG DETECTION: Slow decay check
+    if (shortEMA > longEMA * 1.3 && currentTier === 'DOMINANT') {
+        console.warn(`[SOVEREIGN_GOVERNANCE] SLOW_DECAY_DETECTED: Downscaling to DEGRADED.`);
+        currentTier = 'DEGRADED';
+        onRegulate?.(currentTier);
     }
 
     samples[index] = delta;
     index = (index + 1) % SAMPLE_SIZE;
-
     frameCount++;
 
-    // Process and report every SAMPLE_SIZE frames
     if (frameCount % SAMPLE_SIZE === 0) {
-        let min = Infinity;
         let max = -Infinity;
-        let sum = 0;
-
-        for (let i = 0; i < SAMPLE_SIZE; i++) {
-            const v = samples[i];
-            if (v < min) min = v;
-            if (v > max) max = v;
-            sum += v;
-        }
-
-        rollingAvg = sum / SAMPLE_SIZE;
-        const jitter = max - min;
-        burstCounter = 0; // Reset burst on each audit window
-
-        // Temporal Truth Summary
-        console.log(
-            `[SOVEREIGN_TRACE] rolling_avg: ${rollingAvg.toFixed(2)}ms | jitter: ${jitter.toFixed(2)}ms | session_spikes: ${totalSpikeCount} | worst_record: ${worstFrameEver.toFixed(2)}ms`
-        );
+        for (let i = 0; i < SAMPLE_SIZE; i++) if (samples[i] > max) max = samples[i];
         
-        // Threshold Alert: Sustained Jitter > 5ms
-        if (jitter > 5) {
-            console.warn(`[SOVEREIGN_WARNING] SUSTAINED_JITTER: ${jitter.toFixed(2)}ms exceeds high-fidelity variance.`);
+        const jitter = max - shortEMA;
+
+        if (debugMode) {
+            console.log(
+                `[TRUTH_PULSE] sEMA: ${shortEMA.toFixed(2)} | lEMA: ${longEMA.toFixed(2)} | jitter: ${jitter.toFixed(2)} | tier: ${currentTier}`
+            );
         }
     }
 }

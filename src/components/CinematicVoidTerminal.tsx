@@ -4,33 +4,41 @@ import { Float, Text, PerspectiveCamera, Environment, Stars, Html } from '@react
 import * as THREE from 'three';
 import { GhostTerminalHUD } from './GhostTerminalHUD';
 import { useCinematicMetabolism } from '../hooks/useCinematicMetabolism';
-import { cinematicTracer } from '../systems/CinematicTracer';
+import { cinematicTracer, PerformanceTier } from '../systems/CinematicTracer';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3D MESSAGE ENTITY
 // ═══════════════════════════════════════════════════════════════════════════
 
-const FloatingMessage = ({ message, sender, timestamp, index, total }: { message: string, sender: string, timestamp: number, index: number, total: number }) => {
+const FloatingMessage = ({ message, sender, timestamp, index, total, tier }: { message: string, sender: string, timestamp: number, index: number, total: number, tier: PerformanceTier }) => {
     const yPos = (total - index - 1) * -1.5; 
     const zPos = Math.sin(index * 0.5) * 0.5;
     const xPos = Math.cos(index * 0.3) * 0.2;
 
-    return (
-        <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5} position={[xPos, yPos, zPos]}>
-            <Html transform distanceFactor={10} occlude="blending" style={{ width: '600px', pointerEvents: 'none' }}>
-                <div className={`font-mono transition-all duration-700 ${sender === 'USER' ? 'text-right' : 'text-left'}`}>
-                    <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2 text-[8px] opacity-30 tracking-[0.4em] uppercase">
-                            <span>{sender}</span>
-                            <span className="w-1 h-1 bg-white/20 rounded-full" />
-                            <span>{new Date(timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        <div className={`text-sm leading-relaxed ${sender === 'USER' ? 'text-white/80' : 'text-[#00ff9c]'} drop-shadow-[0_0_10px_rgba(0,255,156,0.3)]`}>
-                            {message}
-                        </div>
+    const Content = (
+        <Html transform distanceFactor={10} occlude="blending" style={{ width: '600px', pointerEvents: 'none' }}>
+            <div className={`font-mono transition-all duration-700 ${sender === 'USER' ? 'text-right' : 'text-left'}`}>
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 text-[8px] opacity-30 tracking-[0.4em] uppercase">
+                        <span>{sender}</span>
+                        <span className="w-1 h-1 bg-white/20 rounded-full" />
+                        <span>{new Date(timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className={`text-sm leading-relaxed ${sender === 'USER' ? 'text-white/80' : 'text-[#00ff9c]'} drop-shadow-[0_0_10px_rgba(0,255,156,0.3)]`}>
+                        {message}
                     </div>
                 </div>
-            </Html>
+            </div>
+        </Html>
+    );
+
+    if (tier === 'MINIMAL') {
+        return <group position={[xPos, yPos, zPos]}>{Content}</group>;
+    }
+    
+    return (
+        <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5} position={[xPos, yPos, zPos]}>
+            {Content}
         </Float>
     );
 };
@@ -75,11 +83,11 @@ const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
 // SCROLL RIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const Rig = ({ children, isOverdrive }: { children: React.ReactNode, isOverdrive: boolean }) => {
+const Rig = ({ children, isOverdrive, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, onRegulate: (tier: PerformanceTier) => void }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
-        // INSTRUMENTATION: Audit frame jitter in real-time
-        cinematicTracer(state.clock.elapsedTime * 1000, true);
+        // INSTRUMENTATION: Audit and Regulate Performance
+        cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate);
 
         if (!group.current) return;
         const factor = isOverdrive ? 0.4 : 0.1;
@@ -100,6 +108,7 @@ const Rig = ({ children, isOverdrive }: { children: React.ReactNode, isOverdrive
 export const CinematicVoidTerminal: React.FC = () => {
     const [input, setInput] = useState('');
     const { isGlitching, isOverdrive, triggerGlitch, toggleOverdrive } = useCinematicMetabolism();
+    const [tier, setTier] = useState<PerformanceTier>('DOMINANT');
     const [chatHistory, setChatHistory] = useState([
         { message: "SYSTEM_READY: VOID_INGRESS_SUCCESS", sender: "KERNEL", timestamp: Date.now() - 5000 },
         { message: "Establishing zero-trust neural link...", sender: "ORACLE", timestamp: Date.now() - 4000 },
@@ -142,13 +151,13 @@ export const CinematicVoidTerminal: React.FC = () => {
         <div className={`fixed inset-0 bg-black overflow-hidden select-none ${isGlitching ? 'glitch-active' : ''}`}>
             {/* 3D CANVAS LAYER */}
             <div className={`absolute inset-0 z-10 ${isOverdrive ? 'animate-[shake_0.1s_infinite]' : ''}`}>
-                <Canvas dpr={[1, 2]}>
+                <Canvas dpr={[1, tier === 'DOMINANT' ? 2 : 1]}>
                     <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={35} />
                     <fog attach="fog" args={['#000', 8, 15]} />
                     <Stars 
                         radius={100} 
                         depth={50} 
-                        count={5000} 
+                        count={tier === 'DOMINANT' ? 5000 : tier === 'DEGRADED' ? 1000 : 200} 
                         factor={isOverdrive ? 20 : 4} 
                         saturation={0} 
                         fade 
@@ -156,7 +165,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                     />
                     
                     <Suspense fallback={null}>
-                        <Rig isOverdrive={isOverdrive}>
+                        <Rig isOverdrive={isOverdrive} onRegulate={setTier}>
                             <group position={[0, -1, 0]}>
                                 {chatHistory.map((chat, i) => (
                                     <FloatingMessage 
@@ -164,6 +173,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                                         {...chat} 
                                         index={i} 
                                         total={chatHistory.length} 
+                                        tier={tier}
                                     />
                                 ))}
                             </group>
@@ -171,7 +181,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                             {/* HUD INTEGRATION */}
                             <GhostTerminalHUD position={[0, -4, 2]} />
                         </Rig>
-                        <Environment preset={isOverdrive ? "forest" : "night"} />
+                        {tier !== 'MINIMAL' && <Environment preset={isOverdrive ? "forest" : "night"} />}
                     </Suspense>
                 </Canvas>
             </div>
@@ -192,8 +202,8 @@ export const CinematicVoidTerminal: React.FC = () => {
                         </span>
                     </div>
                     <div className="text-right text-[8px] font-mono space-y-1">
-                        <div className={isOverdrive ? 'text-[#ff003c]' : 'text-[#39ff14]'}>
-                            {isOverdrive ? 'OVERLOAD: 120%_CORE_LOAD' : 'MEM_USED: 48GB_VRAM_POOL'}
+                        <div className={tier !== 'DOMINANT' ? 'text-red-500 font-bold animate-pulse' : (isOverdrive ? 'text-[#ff003c]' : 'text-[#39ff14]')}>
+                            {tier === 'DOMINANT' ? (isOverdrive ? 'OVERLOAD_LEVEL: 120%' : 'TIER: DOMINANT') : `AUTO_REGULATION: ${tier}`}
                         </div>
                         <div className={isOverdrive ? 'animate-bounce text-[#ff003c]' : ''}>
                             {isOverdrive ? 'BIO_SYNC: 432HZ_MAX' : 'SIGNAL: NOMINAL_88%'}
