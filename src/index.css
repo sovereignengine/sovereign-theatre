@@ -1,0 +1,16 @@
+:root {
+  --bg-void: #000000;
+  --neon-green: #39ff14;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-void);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}

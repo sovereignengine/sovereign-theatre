@@ -1,0 +1,101 @@
+/* 
+ * SOVEREIGN ENGINE — CINEMATIC BUNKER TOOLKIT 
+ * "Frontend is a Video Game"
+ */
+
+:root {
+    /* Cinematic Depth */
+    --bunker-vignette: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.8) 120%);
+    --bunker-scanline: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 156, 0.05) 50%);
+    
+    /* Chrome/Lens Effects */
+    --chromatic-split: 0.5px;
+    --glow-intensity: 0 0 15px rgba(0, 255, 156, 0.4);
+    
+    /* Timing (Gaming Metabolism) */
+    --fast-twitch: cubic-bezier(0.16, 1, 0.3, 1); /* Rapid response */
+    --cinematic-fade: cubic-bezier(0.22, 1, 0.36, 1);
+    
+    /* Depth Blur */
+    --ui-glass-blur: blur(12px) saturate(180%);
+}
+
+.cinematic-surface {
+    position: relative;
+    background: rgba(0, 0, 0, 0.85);
+    -webkit-backdrop-filter: var(--ui-glass-blur);
+    backdrop-filter: var(--ui-glass-blur);
+    border: 1px solid rgba(0, 255, 156, 0.1);
+    overflow: hidden;
+}
+
+.cinematic-surface::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--bunker-vignette);
+    pointer-events: none;
+    z-index: 2;
+}
+
+.cinematic-surface::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--bunker-scanline);
+    background-size: 100% 4px;
+    pointer-events: none;
+    opacity: 0.1;
+    z-index: 3;
+}
+
+/* Chromatic Aberration Text */
+.cinematic-text {
+    position: relative;
+    color: #fff;
+    text-shadow: 
+        var(--chromatic-split) 0 rgba(255,0,0,0.5), 
+        calc(var(--chromatic-split) * -1) 0 rgba(0,0,255,0.5);
+    font-weight: 900;
+    letter-spacing: -0.05em;
+}
+
+/* Motion Blur Effect for fast moves */
+.cinematic-motion {
+    transition: transform var(--fast-twitch), filter 0.2s ease;
+}
+
+.cinematic-motion:active {
+    filter: blur(2px);
+    transform: scale(0.98);
+}
+
+/* UI Glitch (Triggered via state) */
+@keyframes ui-glitch-shake {
+    0% { transform: translate(0); }
+    20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); }
+    60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); }
+    100% { transform: translate(0); }
+}
+
+.glitch-active {
+    animation: ui-glitch-shake 0.15s cubic-bezier(.25,.46,.45,.94) both infinite;
+}
+.bunker-carbon {
+    background: 
+        linear-gradient(27deg, #151515 5px, transparent 5px) 0 5px,
+        linear-gradient(207deg, #151515 5px, transparent 5px) 10px 0px,
+        linear-gradient(27deg, #222 5px, transparent 5px) 0 10px,
+        linear-gradient(207deg, #222 5px, transparent 5px) 10px 5px,
+        linear-gradient(90deg, #1b1b1b 10px, transparent 10px),
+        linear-gradient(#1d1d1d 25%, #1a1a1a 25%, #1a1a1a 50%, transparent 50%, transparent 75%, #242424 75%, #242424);
+    background-color: #131313;
+    background-size: 20px 20px;
+}
+
+.hud-rim-highlight {
+    box-shadow: inset 0 0 1px 1px rgba(0, 255, 156, 0.4), 
+                0 0 20px rgba(0, 255, 156, 0.1);
+}
