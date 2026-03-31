@@ -6,7 +6,12 @@ import { useState, useCallback, useEffect } from 'react';
  */
 export const useCinematicMetabolism = () => {
     const [isGlitching, setIsGlitching] = useState(false);
+    const [isOverdrive, setIsOverdrive] = useState(false);
     const [interferenceLevel, setInterferenceLevel] = useState(0);
+
+    const toggleOverdrive = useCallback(() => {
+        setIsOverdrive(prev => !prev);
+    }, []);
 
     // Trigger a cinematic glitch (e.g., on error or high-priority action)
     const triggerGlitch = useCallback((duration = 300) => {
@@ -17,22 +22,25 @@ export const useCinematicMetabolism = () => {
     // Simulate random "Signal Noise" interference
     useEffect(() => {
         const interval = setInterval(() => {
-            if (Math.random() > 0.95) {
+            if (Math.random() > (isOverdrive ? 0.7 : 0.95)) {
                 setInterferenceLevel(Math.random());
                 setTimeout(() => setInterferenceLevel(0), 100);
             }
-        }, 5000);
+        }, isOverdrive ? 1000 : 5000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [isOverdrive]);
 
     return {
         isGlitching,
+        isOverdrive,
         interferenceLevel,
         triggerGlitch,
+        toggleOverdrive,
         cinematicState: {
             glitchClass: isGlitching ? 'glitch-active' : '',
-            intensityStyle: { opacity: 1 - (interferenceLevel * 0.1) }
+            overdriveClass: isOverdrive ? 'overdrive-active' : '',
+            intensityStyle: { opacity: 1 - (interferenceLevel * (isOverdrive ? 0.3 : 0.1)) }
         }
     };
 };

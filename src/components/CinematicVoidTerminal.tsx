@@ -38,7 +38,7 @@ const FloatingMessage = ({ message, sender, timestamp, index, total }: { message
 // DATA STREAM BACKGROUND
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DataRain = () => {
+const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
     const count = 50;
     const [positions] = useState(() => Array.from({ length: count }, () => [
         (Math.random() - 0.5) * 20,
@@ -46,17 +46,24 @@ const DataRain = () => {
         (Math.random() - 0.5) * 10 - 10
     ]));
 
+    const group = useRef<THREE.Group>(null);
+    useFrame((state) => {
+        if (!group.current) return;
+        group.current.position.y -= isOverdrive ? 0.4 : 0.05;
+        if (group.current.position.y < -10) group.current.position.y = 10;
+    });
+
     return (
-        <group>
+        <group ref={group}>
             {positions.map((pos, i) => (
                 <Text
                     key={i}
                     position={pos as [number, number, number]}
                     fontSize={0.1}
-                    color="rgba(0,255,156,0.05)"
+                    color={isOverdrive ? "#ff003c" : "rgba(0,255,156,0.05)"}
                     font="monospace"
                 >
-                    {Math.random().toString(16).substring(2, 10).toUpperCase()}
+                    {isOverdrive ? "FATAL_OVERRIDE" : Math.random().toString(16).substring(2, 10).toUpperCase()}
                 </Text>
             ))}
         </group>
@@ -67,12 +74,17 @@ const DataRain = () => {
 // SCROLL RIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const Rig = ({ children }: { children: React.ReactNode }) => {
+const Rig = ({ children, isOverdrive }: { children: React.ReactNode, isOverdrive: boolean }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
         if (!group.current) return;
-        group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, state.mouse.y * 0.5, 0.1);
-        group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, state.mouse.x * 0.1, 0.1);
+        const factor = isOverdrive ? 0.4 : 0.1;
+        group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, state.mouse.y * 1.5, 0.1);
+        group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, state.mouse.x * factor, 0.1);
+        
+        if (isOverdrive) {
+            group.current.rotation.z = Math.sin(state.clock.elapsedTime * 10) * 0.05;
+        }
     });
     return <group ref={group}>{children}</group>;
 };
@@ -83,12 +95,25 @@ const Rig = ({ children }: { children: React.ReactNode }) => {
 
 export const CinematicVoidTerminal: React.FC = () => {
     const [input, setInput] = useState('');
-    const { isGlitching, triggerGlitch } = useCinematicMetabolism();
+    const { isGlitching, isOverdrive, triggerGlitch, toggleOverdrive } = useCinematicMetabolism();
     const [chatHistory, setChatHistory] = useState([
         { message: "SYSTEM_READY: VOID_INGRESS_SUCCESS", sender: "KERNEL", timestamp: Date.now() - 5000 },
         { message: "Establishing zero-trust neural link...", sender: "ORACLE", timestamp: Date.now() - 4000 },
         { message: "Arhitekte, prostor je bezgraničan. Govori bez okvira.", sender: "ORACLE", timestamp: Date.now() - 3000 }
     ]);
+
+    React.useEffect(() => {
+        const handleKeys = (e: KeyboardEvent) => {
+            if (e.key === 'o' || e.key === 'O') {
+                if (document.activeElement?.tagName !== 'INPUT') {
+                    toggleOverdrive();
+                    triggerGlitch(500);
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeys);
+        return () => window.removeEventListener('keydown', handleKeys);
+    }, [toggleOverdrive, triggerGlitch]);
     
     const handleSend = () => {
         if (!input.trim()) return;
@@ -101,25 +126,33 @@ export const CinematicVoidTerminal: React.FC = () => {
         // Simulate Agent response
         setTimeout(() => {
             const agentMsg = { 
-                message: `PROCESSED: "${input.substring(0, 20)}..." // NO_FRAME_NEEDS_DETECTION: ${Math.random().toFixed(4)}`, 
+                message: isOverdrive ? "!!! FATAL_OVERRIDE_RESPONSE_TRUNCATED !!!" : `PROCESSED: "${input.substring(0, 20)}..." // NO_FRAME_NEEDS_DETECTION: ${Math.random().toFixed(4)}`, 
                 sender: "KERNEL", 
                 timestamp: Date.now() 
               };
             setChatHistory(prev => [...prev.slice(-15), agentMsg]);
-        }, 1000);
+        }, isOverdrive ? 100 : 1000);
     };
 
     return (
         <div className={`fixed inset-0 bg-black overflow-hidden select-none ${isGlitching ? 'glitch-active' : ''}`}>
             {/* 3D CANVAS LAYER */}
-            <div className="absolute inset-0 z-10">
+            <div className={`absolute inset-0 z-10 ${isOverdrive ? 'animate-[shake_0.1s_infinite]' : ''}`}>
                 <Canvas dpr={[1, 2]}>
                     <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={35} />
                     <fog attach="fog" args={['#000', 8, 15]} />
-                    <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+                    <Stars 
+                        radius={100} 
+                        depth={50} 
+                        count={5000} 
+                        factor={isOverdrive ? 20 : 4} 
+                        saturation={0} 
+                        fade 
+                        speed={isOverdrive ? 10 : 1} 
+                    />
                     
                     <Suspense fallback={null}>
-                        <Rig>
+                        <Rig isOverdrive={isOverdrive}>
                             <group position={[0, -1, 0]}>
                                 {chatHistory.map((chat, i) => (
                                     <FloatingMessage 
@@ -130,11 +163,11 @@ export const CinematicVoidTerminal: React.FC = () => {
                                     />
                                 ))}
                             </group>
-                            <DataRain />
+                            <DataRain isOverdrive={isOverdrive} />
                             {/* HUD INTEGRATION */}
                             <GhostTerminalHUD position={[0, -4, 2]} />
                         </Rig>
-                        <Environment preset="night" />
+                        <Environment preset={isOverdrive ? "forest" : "night"} />
                     </Suspense>
                 </Canvas>
             </div>
@@ -147,13 +180,21 @@ export const CinematicVoidTerminal: React.FC = () => {
                 {/* TOP BRANDING */}
                 <div className="flex justify-between items-start opacity-40">
                     <div className="flex flex-col gap-1">
-                        <span className="text-[10px] font-mono tracking-[1em] text-white uppercase">Sovereign_Void</span>
-                        <span className="text-[8px] font-mono text-[#39ff14] tracking-[0.5em] uppercase">No_Container_Protocol // v9.2.0</span>
+                        <span className={`text-[10px] font-mono tracking-[1em] uppercase ${isOverdrive ? 'text-[#ff003c] font-black' : 'text-white'}`}>
+                            {isOverdrive ? 'ARCHITECT_OVERDRIVE_ACTIVE' : 'Sovereign_Void'}
+                        </span>
+                        <span className={`text-[8px] font-mono tracking-[0.5em] uppercase ${isOverdrive ? 'text-[#ff003c]' : 'text-[#39ff14]'}`}>
+                            {isOverdrive ? '!!! 128_BPM_RESONANCE_DETACHED !!!' : 'No_Container_Protocol // v9.2.0'}
+                        </span>
                     </div>
                     <div className="text-right text-[8px] font-mono space-y-1">
-                        <div className="text-[#39ff14]">MEM_USED: 48GB_VRAM_POOL</div>
-                        <div>SIGNAL: NOMINAL_88%</div>
-                        <div>NODE: RTX_A6000_EDGE</div>
+                        <div className={isOverdrive ? 'text-[#ff003c]' : 'text-[#39ff14]'}>
+                            {isOverdrive ? 'OVERLOAD: 120%_CORE_LOAD' : 'MEM_USED: 48GB_VRAM_POOL'}
+                        </div>
+                        <div className={isOverdrive ? 'animate-bounce text-[#ff003c]' : ''}>
+                            {isOverdrive ? 'BIO_SYNC: 432HZ_MAX' : 'SIGNAL: NOMINAL_88%'}
+                        </div>
+                        <div className={isOverdrive ? 'text-[#ff003c]' : ''}>NODE: RTX_A6000_EDGE</div>
                     </div>
                 </div>
 
