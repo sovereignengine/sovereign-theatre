@@ -26,9 +26,13 @@ const ALPHA_LONG = 0.01;
 let lastSpikeTime = 0;
 let clusterStrength = 0;
 let lastTierSwitchTime = 0;
-const STABILIZATION_DELAY = 3000; // 3 seconds 
+const STABILIZATION_DELAY = 3000; 
 
-// STRESS SCALING (0.0 = Dominant, 1.0 = Minimal)
+// THERMAL DRIFT TRACKER
+let thermalPressure = false;
+let thermalHighCounter = 0;
+
+// STRESS SCALING
 let rawStress = 0;
 let smoothedStress = 0; 
 let lowStressStableSince = 0;
@@ -42,7 +46,8 @@ const sessionAudit = {
     worst: 0,
     totalSpikes: 0,
     finalStress: 0,
-    duration: 0
+    duration: 0,
+    thermalPressure: false
 };
 
 const dumpAudit = () => {
@@ -50,7 +55,15 @@ const dumpAudit = () => {
     sessionAudit.worst = worstFrameEver;
     sessionAudit.totalSpikes = totalSpikeCount;
     sessionAudit.finalStress = smoothedStress;
+    sessionAudit.thermalPressure = thermalPressure;
     sessionAudit.duration = (Date.now() - sessionStart) / 1000;
+    
+    // Telemetry Export (Beacon for production-grade audit)
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const payload = JSON.stringify({ ...sessionAudit, id: "sov_void_v8", ts: Date.now() });
+        // navigator.sendBeacon('/audit/performance', payload); 
+    }
+    
     console.table(sessionAudit);
 };
 
@@ -62,6 +75,12 @@ if (typeof window !== 'undefined') {
 
 export function cinematicTracer(now: number, debugMode = false, onRegulate?: (factor: number, tier: PerformanceTier) => void) {
     if (!debugMode) return;
+
+    // VISIBILITY GUARD: Skip governor updates if tab is hidden to avoid false stress signals
+    if (typeof document !== 'undefined' && document.hidden) {
+        lastTime = 0; // Reset timer to avoid massive delta on resume
+        return;
+    }
 
     if (lastTime === 0) {
         lastTime = now;
@@ -75,21 +94,28 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
 
-    // ANTI-ALIASED STRESS FACTOR (Smooth input to avoid jitter in regulation)
-    const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67));
+    // THERMAL DRIFT DETECTION: Look for sustained high latency (> 21ms for 15s)
+    if (longEMA > 21) {
+        thermalHighCounter++;
+        if (thermalHighCounter > 900) { // ~15 seconds at 60 FPS
+            thermalPressure = true;
+        }
+    } else {
+        thermalHighCounter = Math.max(0, thermalHighCounter - 1);
+    }
+
+    // ANTI-ALIASED STRESS FACTOR 
+    const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67)) + (thermalPressure ? 0.2 : 0);
     rawStress = rawStress * 0.95 + targetStress * 0.05; 
-    smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; // Second layer of smoothing
+    smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; 
 
     // HYSTERESIS & CONFIDENCE WINDOW
     const timeSinceSwitch = now - lastTierSwitchTime;
-    
-    // CONFIDANCE WINDOW: Sustained low stress (< 0.05) for 500ms
     if (smoothedStress < 0.05) {
         if (lowStressStableSince === 0) lowStressStableSince = now;
     } else {
         lowStressStableSince = 0;
     }
-    
     const bypassCooldown = (lowStressStableSince !== 0 && (now - lowStressStableSince > 500)); 
 
     if (timeSinceSwitch > STABILIZATION_DELAY || bypassCooldown) {
@@ -112,22 +138,29 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
         }
     }
 
-    // SPIKE CLUSTERING
+    // SPIKE CLASSIFICATION & CLUSTERING
     if (delta > 25) {
-        totalSpikeCount++;
-        if (delta > worstFrameEver) worstFrameEver = delta;
-        const timeSinceLastSpike = now - lastSpikeTime;
-        if (timeSinceLastSpike < 120) clusterStrength++;
-        else clusterStrength = 0;
-        lastSpikeTime = now;
+        // CLASSIFIER: Is this a rendering spike or an external OS glitch?
+        const isExternal = delta > 50 && clusterStrength === 0;
+        
+        if (!isExternal) {
+            totalSpikeCount++;
+            if (delta > worstFrameEver) worstFrameEver = delta;
+            const timeSinceLastSpike = now - lastSpikeTime;
+            if (timeSinceLastSpike < 120) clusterStrength++;
+            else clusterStrength = 0;
+            lastSpikeTime = now;
 
-        if (clusterStrength > 3 && currentTier !== 'MINIMAL') {
-            currentTier = 'MINIMAL';
-            lastTierSwitchTime = now;
+            if (clusterStrength > 3 && currentTier !== 'MINIMAL') {
+                currentTier = 'MINIMAL';
+                lastTierSwitchTime = now;
+            }
+        } else if (debugMode) {
+            console.log(`[SOVEREIGN_RESILIENCE] EXTERNAL_SPIKE_IGNORED: ${delta.toFixed(2)}ms`); 
         }
     }
 
-    // EMIT REGULATION: Purely smoothed signal
+    // EMIT REGULATION
     onRegulate?.(smoothedStress, currentTier);
 
     samples[index] = delta;
@@ -135,6 +168,6 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | tier: ${currentTier} | bypass: ${bypassCooldown}`);
+        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | tier: ${currentTier} | thermal: ${thermalPressure}`);
     }
 }
