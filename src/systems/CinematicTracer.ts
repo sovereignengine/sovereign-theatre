@@ -33,6 +33,10 @@ let thermalPressure = false;
 let thermalHighCounter = 0;
 let thermalLowCounter = 0;
 
+// RE-ENTRY WARMUP
+let warmupCounter = 0;
+const WARMUP_FRAMES = 30;
+
 // STRESS SCALING (Economic Model)
 let rawStress = 0;
 let smoothedStress = 0; 
@@ -68,13 +72,13 @@ const dumpAudit = () => {
 };
 
 if (typeof window !== 'undefined') {
-    // RE-ENTRY NORMALIZATION: Smooth transition when tab gains focus
     window.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             shortEMA = 16.67;
             rawStress = 0;
-            smoothedStress = smoothedStress * 0.5; // Soften the jump
-            lastTime = 0; // Reset timer
+            smoothedStress = smoothedStress * 0.5; 
+            warmupCounter = WARMUP_FRAMES; // START WARMUP
+            lastTime = 0; 
         }
     });
     ['pagehide', 'beforeunload'].forEach(evt => 
@@ -82,7 +86,12 @@ if (typeof window !== 'undefined') {
     );
 }
 
-export function cinematicTracer(now: number, debugMode = false, onRegulate?: (factor: number, tier: PerformanceTier) => void) {
+export function cinematicTracer(
+    now: number, 
+    debugMode = false, 
+    onRegulate?: (factor: number, tier: PerformanceTier) => void,
+    isInteracting = false
+) {
     if (!debugMode) return;
     if (typeof document !== 'undefined' && document.hidden) return;
 
@@ -98,7 +107,7 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
 
-    // THERMAL RECOVERY LOGIC: Sustained low load allows exit from thermal mode
+    // THERMAL RECOVERY LOGIC
     if (longEMA > 21) {
         thermalHighCounter++;
         thermalLowCounter = 0;
@@ -107,7 +116,7 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
         thermalHighCounter = Math.max(0, thermalHighCounter - 1);
         if (thermalPressure) {
             thermalLowCounter++;
-            if (thermalLowCounter > 600) { // ~10 seconds of stability
+            if (thermalLowCounter > 600) { 
                 thermalPressure = false;
                 thermalLowCounter = 0;
             }
@@ -119,30 +128,39 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     rawStress = rawStress * 0.95 + targetStress * 0.05; 
     smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; 
 
+    // INTENT-AWARE MODULATION: If user is interacting, we "downplay" the stress to protect quality
+    const effectiveStress = isInteracting ? smoothedStress * 0.7 : smoothedStress;
+
     // HYSTERESIS & CONFIDENCE WINDOW
     const timeSinceSwitch = now - lastTierSwitchTime;
-    if (smoothedStress < 0.05) {
+    if (effectiveStress < 0.05) {
         if (lowStressStableSince === 0) lowStressStableSince = now;
     } else {
         lowStressStableSince = 0;
     }
     const bypassCooldown = (lowStressStableSince !== 0 && (now - lowStressStableSince > 500)); 
 
+    // RE-ENTRY WARMUP GUARD: Skip regulation during warmup frames
+    if (warmupCounter > 0) {
+        warmupCounter--;
+        return;
+    }
+
     if (timeSinceSwitch > STABILIZATION_DELAY || bypassCooldown) {
         // Upgrade Logic
-        if (currentTier !== 'DOMINANT' && smoothedStress < 0.1) {
+        if (currentTier !== 'DOMINANT' && effectiveStress < 0.1) {
             currentTier = 'DOMINANT';
             lastTierSwitchTime = now;
-        } else if (currentTier === 'MINIMAL' && smoothedStress < 0.4) {
+        } else if (currentTier === 'MINIMAL' && effectiveStress < 0.4) {
             currentTier = 'DEGRADED';
             lastTierSwitchTime = now;
         }
 
         // Downgrade Logic
-        if (smoothedStress > 0.6 && currentTier !== 'MINIMAL') {
+        if (effectiveStress > 0.6 && currentTier !== 'MINIMAL') {
             currentTier = 'MINIMAL';
             lastTierSwitchTime = now;
-        } else if (smoothedStress > 0.3 && currentTier === 'DOMINANT') {
+        } else if (effectiveStress > 0.3 && currentTier === 'DOMINANT') {
             currentTier = 'DEGRADED';
             lastTierSwitchTime = now;
         }
@@ -151,9 +169,9 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     // WEIGHTED SPIKE CLASSIFICATION
     if (delta > 25) {
         const isIsolated = delta > 50 && clusterStrength === 0;
-        const spikeWeight = isIsolated ? 0.3 : 1.0; // CONFIDENCE WEIGHTING
+        const spikeWeight = isIsolated ? 0.3 : 1.0; 
         
-        if (spikeWeight > 0.5) { // Only cluster real pressure
+        if (spikeWeight > 0.5) { 
             totalSpikeCount++;
             if (delta > worstFrameEver) worstFrameEver = delta;
             const timeSinceLastSpike = now - lastSpikeTime;
@@ -165,20 +183,17 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
                 currentTier = 'MINIMAL';
                 lastTierSwitchTime = now;
             }
-        } else if (debugMode) {
-            // Log isolated hitch but don't force tier drop yet
-            console.log(`[SOVEREIGN_GOV] ISOLATED_HITCH: ${delta.toFixed(2)}ms (Weighted: 0.3)`);
         }
     }
 
     // EMIT REGULATION
-    onRegulate?.(smoothedStress, currentTier);
+    onRegulate?.(effectiveStress, currentTier);
 
     samples[index] = delta;
     index = (index + 1) % SAMPLE_SIZE;
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | thermal: ${thermalPressure} | tier: ${currentTier}`);
+        console.log(`[SOVEREIGN_GOV] stress: ${effectiveStress.toFixed(2)} | interacting: ${isInteracting} | warm: ${warmupCounter}`);
     }
 }

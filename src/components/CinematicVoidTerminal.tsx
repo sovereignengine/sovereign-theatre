@@ -83,11 +83,12 @@ const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
 // SCROLL RIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const Rig = ({ children, isOverdrive, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, onRegulate: (factor: number, tier: PerformanceTier) => void }) => {
+const Rig = ({ children, isOverdrive, isInteracting, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, isInteracting: boolean, onRegulate: (factor: number, tier: PerformanceTier) => void }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
         // INSTRUMENTATION: Audit and Regulate Performance (Perceptual SLA)
-        cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate);
+        // Pass interaction state to protect quality during engagement
+        cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate, isInteracting);
 
         if (!group.current) return;
         const factor = isOverdrive ? 0.4 : 0.1;
@@ -110,11 +111,20 @@ export const CinematicVoidTerminal: React.FC = () => {
     const { isGlitching, isOverdrive, triggerGlitch, toggleOverdrive } = useCinematicMetabolism();
     const [tier, setTier] = useState<PerformanceTier>('DOMINANT');
     const [stress, setStress] = useState(0);
+    const [isInteracting, setIsInteracting] = useState(false);
+    const interactionTimeout = useRef<NodeJS.Timeout | null>(null);
+
     const [chatHistory, setChatHistory] = useState([
         { message: "SYSTEM_READY: VOID_INGRESS_SUCCESS", sender: "KERNEL", timestamp: Date.now() - 5000 },
         { message: "Establishing zero-trust neural link...", sender: "ORACLE", timestamp: Date.now() - 4000 },
         { message: "Arhitekte, prostor je bezgraničan. Govori bez okvira.", sender: "ORACLE", timestamp: Date.now() - 3000 }
     ]);
+
+    const handleInteraction = () => {
+        setIsInteracting(true);
+        if (interactionTimeout.current) clearTimeout(interactionTimeout.current);
+        interactionTimeout.current = setTimeout(() => setIsInteracting(false), 500);
+    };
 
     const handleRegulate = (s: number, t: PerformanceTier) => {
         setStress(s);
@@ -123,15 +133,18 @@ export const CinematicVoidTerminal: React.FC = () => {
 
     React.useEffect(() => {
         const handleKeys = (e: KeyboardEvent) => {
+            handleInteraction(); // Track intent
             if (e.key === 'o' || e.key === 'O') {
-                if (document.activeElement?.tagName !== 'INPUT') {
-                    toggleOverdrive();
-                    triggerGlitch(500);
-                }
+                toggleOverdrive();
+                triggerGlitch(500);
             }
         };
         window.addEventListener('keydown', handleKeys);
-        return () => window.removeEventListener('keydown', handleKeys);
+        window.addEventListener('mousemove', handleInteraction);
+        return () => {
+            window.removeEventListener('keydown', handleKeys);
+            window.removeEventListener('mousemove', handleInteraction);
+        };
     }, [toggleOverdrive, triggerGlitch]);
     
     const handleSend = () => {
@@ -171,7 +184,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                     />
                     
                     <Suspense fallback={null}>
-                        <Rig isOverdrive={isOverdrive} onRegulate={handleRegulate}>
+                        <Rig isOverdrive={isOverdrive} isInteracting={isInteracting} onRegulate={handleRegulate}>
                             <group position={[0, -1, 0]}>
                                 {chatHistory.map((chat, i) => (
                                     <FloatingMessage 
