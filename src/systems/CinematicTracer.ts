@@ -73,15 +73,15 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
 
     // CONTINUOUS STRESS FACTOR (0 to 1)
-    // 16.6ms (base) to 33.3ms (threshold) maps to 0 to 1
     const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67));
     stressFactor = stressFactor * 0.95 + targetStress * 0.05; // Smooth lerp
 
     // HYSTERESIS & TIER LOGIC
     const timeSinceSwitch = now - lastTierSwitchTime;
-    
-    if (timeSinceSwitch > STABILIZATION_DELAY) {
-        // Upgrade Logic (Harder to recover, needs stability)
+    const bypassCooldown = stressFactor < 0.05; // INSTANT RECOVERY BYPASS
+
+    if (timeSinceSwitch > STABILIZATION_DELAY || bypassCooldown) {
+        // Upgrade Logic (Harder to recover, needs stability unless bypass triggered)
         if (currentTier !== 'DOMINANT' && stressFactor < 0.1) {
             currentTier = 'DOMINANT';
             lastTierSwitchTime = now;
@@ -123,6 +123,6 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[PERCEPT_SLA] stress: ${stressFactor.toFixed(2)} | tier: ${currentTier} | jitter: ${(Math.max(...samples) - shortEMA).toFixed(2)}ms`);
+        console.log(`[PERCEPT_SLA] stress: ${stressFactor.toFixed(2)} | tier: ${currentTier} | bypass: ${bypassCooldown}`);
     }
 }

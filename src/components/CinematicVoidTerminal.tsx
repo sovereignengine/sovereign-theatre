@@ -157,13 +157,13 @@ export const CinematicVoidTerminal: React.FC = () => {
         <div className={`fixed inset-0 bg-black overflow-hidden select-none ${isGlitching ? 'glitch-active' : ''}`}>
             {/* 3D CANVAS LAYER */}
             <div className={`absolute inset-0 z-10 ${isOverdrive ? 'animate-[shake_0.1s_infinite]' : ''}`}>
-                <Canvas dpr={[1, 2 - stress * 1.3]}>
+                <Canvas dpr={[1, stress < 0.4 ? 2 : 2 - ((stress - 0.4) / 0.6) * 1.3]}>
                     <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={35} />
                     <fog attach="fog" args={['#000', 8, 15]} />
                     <Stars 
                         radius={100} 
                         depth={50} 
-                        count={Math.floor(THREE.MathUtils.lerp(5000, 200, stress))} 
+                        count={Math.floor(5000 * (1 - (stress * stress)) + 200)} 
                         factor={isOverdrive ? 20 : 4} 
                         saturation={0} 
                         fade 
