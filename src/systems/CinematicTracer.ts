@@ -12,9 +12,32 @@ let lastTime = 0;
 let frameCount = 0;
 let index = 0;
 
-// Temporal Truth Engine V2 - Persisting across bursts
+// Temporal Truth Engine V2.1 - Adaptive Persistence
 let totalSpikeCount = 0;
 let worstFrameEver = 0;
+let burstCounter = 0;
+let sessionStart = Date.now();
+let rollingAvg = 16.67;
+
+// Session Report for Post-Mortem Analysis
+const sessionAudit = {
+    avg: 0,
+    worst: 0,
+    totalSpikes: 0,
+    durationSeconds: 0,
+    startTime: new Date().toISOString()
+};
+
+// Auto-Dump session metrics on closure
+if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+        sessionAudit.avg = rollingAvg;
+        sessionAudit.worst = worstFrameEver;
+        sessionAudit.totalSpikes = totalSpikeCount;
+        sessionAudit.durationSeconds = (Date.now() - sessionStart) / 1000;
+        console.table(sessionAudit);
+    });
+}
 
 export function cinematicTracer(now: number, debugMode = false) {
     if (!debugMode) return;
@@ -27,11 +50,20 @@ export function cinematicTracer(now: number, debugMode = false) {
     const delta = now - lastTime;
     lastTime = now;
 
-    // SPIKE HUNTER: Detect individual micro-stutters (> 25ms / ~40fps drop)
-    if (delta > 25) {
+    // ADAPTIVE BASELINE: Detect spikes relative to recent performance (+60% jump)
+    const threshold = Math.max(25, rollingAvg * 1.6);
+    
+    if (delta > threshold) {
         totalSpikeCount++;
+        burstCounter++;
         if (delta > worstFrameEver) worstFrameEver = delta;
-        console.warn(`[SOVEREIGN_SPIKE] ${delta.toFixed(2)}ms detected. Cumulative Spikes: ${totalSpikeCount}.`);
+        
+        console.warn(`[SOVEREIGN_SPIKE] ${delta.toFixed(2)}ms (Threshold: ${threshold.toFixed(2)}ms). Total: ${totalSpikeCount}.`);
+        
+        // BURST DETECTION: Identify series of jitter within a single sample window
+        if (burstCounter > 3) {
+            console.error(`[SOVEREIGN_CRITICAL] JITTER_BURST_DETECTED: System stability unstable. Burst Count: ${burstCounter}.`);
+        }
     }
 
     samples[index] = delta;
@@ -52,17 +84,18 @@ export function cinematicTracer(now: number, debugMode = false) {
             sum += v;
         }
 
-        const avg = sum / SAMPLE_SIZE;
+        rollingAvg = sum / SAMPLE_SIZE;
         const jitter = max - min;
+        burstCounter = 0; // Reset burst on each audit window
 
         // Temporal Truth Summary
         console.log(
-            `[SOVEREIGN_TRACE] avg: ${avg.toFixed(2)}ms | jitter: ${jitter.toFixed(2)}ms | spikes: ${totalSpikeCount} | worst_frame: ${worstFrameEver.toFixed(2)}ms`
+            `[SOVEREIGN_TRACE] rolling_avg: ${rollingAvg.toFixed(2)}ms | jitter: ${jitter.toFixed(2)}ms | session_spikes: ${totalSpikeCount} | worst_record: ${worstFrameEver.toFixed(2)}ms`
         );
         
-        // Critical Threshold Log: Alert if jitter exceeds 5ms
+        // Threshold Alert: Sustained Jitter > 5ms
         if (jitter > 5) {
-            console.warn(`[SOVEREIGN_WARNING] JITTER_STORM: ${jitter.toFixed(2)}ms exceeds deterministic threshold.`);
+            console.warn(`[SOVEREIGN_WARNING] SUSTAINED_JITTER: ${jitter.toFixed(2)}ms exceeds high-fidelity variance.`);
         }
     }
 }
