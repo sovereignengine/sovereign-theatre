@@ -12,6 +12,10 @@ let lastTime = 0;
 let frameCount = 0;
 let index = 0;
 
+// Temporal Truth Engine V2 - Persisting across bursts
+let totalSpikeCount = 0;
+let worstFrameEver = 0;
+
 export function cinematicTracer(now: number, debugMode = false) {
     if (!debugMode) return;
 
@@ -22,6 +26,13 @@ export function cinematicTracer(now: number, debugMode = false) {
 
     const delta = now - lastTime;
     lastTime = now;
+
+    // SPIKE HUNTER: Detect individual micro-stutters (> 25ms / ~40fps drop)
+    if (delta > 25) {
+        totalSpikeCount++;
+        if (delta > worstFrameEver) worstFrameEver = delta;
+        console.warn(`[SOVEREIGN_SPIKE] ${delta.toFixed(2)}ms detected. Cumulative Spikes: ${totalSpikeCount}.`);
+    }
 
     samples[index] = delta;
     index = (index + 1) % SAMPLE_SIZE;
@@ -44,14 +55,14 @@ export function cinematicTracer(now: number, debugMode = false) {
         const avg = sum / SAMPLE_SIZE;
         const jitter = max - min;
 
-        // Bytewise 'Feeling' Output - Raw Engineering Truth
+        // Temporal Truth Summary
         console.log(
-            `[SOVEREIGN_TRACE] avg: ${avg.toFixed(2)}ms | jitter: ${jitter.toFixed(2)}ms | min: ${min.toFixed(2)}ms | max: ${max.toFixed(2)}ms`
+            `[SOVEREIGN_TRACE] avg: ${avg.toFixed(2)}ms | jitter: ${jitter.toFixed(2)}ms | spikes: ${totalSpikeCount} | worst_frame: ${worstFrameEver.toFixed(2)}ms`
         );
         
-        // Critical Threshold Log: Alert if jitter exceeds 5ms (Standard for high-fidelity ingress)
+        // Critical Threshold Log: Alert if jitter exceeds 5ms
         if (jitter > 5) {
-            console.warn(`[SOVEREIGN_WARNING] JITTER_STORM_DETECTED: ${jitter.toFixed(2)}ms Delta exceeds deterministic threshold.`);
+            console.warn(`[SOVEREIGN_WARNING] JITTER_STORM: ${jitter.toFixed(2)}ms exceeds deterministic threshold.`);
         }
     }
 }
