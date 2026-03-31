@@ -83,10 +83,10 @@ const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
 // SCROLL RIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const Rig = ({ children, isOverdrive, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, onRegulate: (tier: PerformanceTier) => void }) => {
+const Rig = ({ children, isOverdrive, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, onRegulate: (factor: number, tier: PerformanceTier) => void }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
-        // INSTRUMENTATION: Audit and Regulate Performance
+        // INSTRUMENTATION: Audit and Regulate Performance (Perceptual SLA)
         cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate);
 
         if (!group.current) return;
@@ -109,11 +109,17 @@ export const CinematicVoidTerminal: React.FC = () => {
     const [input, setInput] = useState('');
     const { isGlitching, isOverdrive, triggerGlitch, toggleOverdrive } = useCinematicMetabolism();
     const [tier, setTier] = useState<PerformanceTier>('DOMINANT');
+    const [stress, setStress] = useState(0);
     const [chatHistory, setChatHistory] = useState([
         { message: "SYSTEM_READY: VOID_INGRESS_SUCCESS", sender: "KERNEL", timestamp: Date.now() - 5000 },
         { message: "Establishing zero-trust neural link...", sender: "ORACLE", timestamp: Date.now() - 4000 },
         { message: "Arhitekte, prostor je bezgraničan. Govori bez okvira.", sender: "ORACLE", timestamp: Date.now() - 3000 }
     ]);
+
+    const handleRegulate = (s: number, t: PerformanceTier) => {
+        setStress(s);
+        setTier(t);
+    };
 
     React.useEffect(() => {
         const handleKeys = (e: KeyboardEvent) => {
@@ -151,13 +157,13 @@ export const CinematicVoidTerminal: React.FC = () => {
         <div className={`fixed inset-0 bg-black overflow-hidden select-none ${isGlitching ? 'glitch-active' : ''}`}>
             {/* 3D CANVAS LAYER */}
             <div className={`absolute inset-0 z-10 ${isOverdrive ? 'animate-[shake_0.1s_infinite]' : ''}`}>
-                <Canvas dpr={[1, tier === 'DOMINANT' ? 2 : 1]}>
+                <Canvas dpr={[1, 2 - stress * 1.3]}>
                     <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={35} />
                     <fog attach="fog" args={['#000', 8, 15]} />
                     <Stars 
                         radius={100} 
                         depth={50} 
-                        count={tier === 'DOMINANT' ? 5000 : tier === 'DEGRADED' ? 1000 : 200} 
+                        count={Math.floor(THREE.MathUtils.lerp(5000, 200, stress))} 
                         factor={isOverdrive ? 20 : 4} 
                         saturation={0} 
                         fade 
@@ -165,7 +171,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                     />
                     
                     <Suspense fallback={null}>
-                        <Rig isOverdrive={isOverdrive} onRegulate={setTier}>
+                        <Rig isOverdrive={isOverdrive} onRegulate={handleRegulate}>
                             <group position={[0, -1, 0]}>
                                 {chatHistory.map((chat, i) => (
                                     <FloatingMessage 
@@ -181,7 +187,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                             {/* HUD INTEGRATION */}
                             <GhostTerminalHUD position={[0, -4, 2]} />
                         </Rig>
-                        {tier !== 'MINIMAL' && <Environment preset={isOverdrive ? "forest" : "night"} />}
+                        {stress < 0.8 && <Environment preset={isOverdrive ? "forest" : "night"} />}
                     </Suspense>
                 </Canvas>
             </div>
