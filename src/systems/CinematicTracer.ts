@@ -1,8 +1,8 @@
 /**
- * CinematicTracer.ts V2.3 - The Perceptual SLA Engine
+ * CinematicTracer.ts V2.7 - The Economic Governor
  * 
- * Implements continuous stress scaling (0-1) with hysteresis and 
- * stabilization delays to eliminate discrete 'step' artifacts.
+ * Transition from simple reaction to a weighted economic model of performance.
+ * Implements spike confidence, re-entry normalization, and thermal recovery.
  */
 
 const SAMPLE_SIZE = 120;
@@ -31,8 +31,9 @@ const STABILIZATION_DELAY = 3000;
 // THERMAL DRIFT TRACKER
 let thermalPressure = false;
 let thermalHighCounter = 0;
+let thermalLowCounter = 0;
 
-// STRESS SCALING
+// STRESS SCALING (Economic Model)
 let rawStress = 0;
 let smoothedStress = 0; 
 let lowStressStableSince = 0;
@@ -58,7 +59,6 @@ const dumpAudit = () => {
     sessionAudit.thermalPressure = thermalPressure;
     sessionAudit.duration = (Date.now() - sessionStart) / 1000;
     
-    // Telemetry Export (Beacon for production-grade audit)
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const payload = JSON.stringify({ ...sessionAudit, id: "sov_void_v8", ts: Date.now() });
         // navigator.sendBeacon('/audit/performance', payload); 
@@ -68,19 +68,23 @@ const dumpAudit = () => {
 };
 
 if (typeof window !== 'undefined') {
-    ['visibilitychange', 'pagehide', 'beforeunload'].forEach(evt => 
+    // RE-ENTRY NORMALIZATION: Smooth transition when tab gains focus
+    window.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            shortEMA = 16.67;
+            rawStress = 0;
+            smoothedStress = smoothedStress * 0.5; // Soften the jump
+            lastTime = 0; // Reset timer
+        }
+    });
+    ['pagehide', 'beforeunload'].forEach(evt => 
         window.addEventListener(evt, dumpAudit)
     );
 }
 
 export function cinematicTracer(now: number, debugMode = false, onRegulate?: (factor: number, tier: PerformanceTier) => void) {
     if (!debugMode) return;
-
-    // VISIBILITY GUARD: Skip governor updates if tab is hidden to avoid false stress signals
-    if (typeof document !== 'undefined' && document.hidden) {
-        lastTime = 0; // Reset timer to avoid massive delta on resume
-        return;
-    }
+    if (typeof document !== 'undefined' && document.hidden) return;
 
     if (lastTime === 0) {
         lastTime = now;
@@ -94,17 +98,23 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
 
-    // THERMAL DRIFT DETECTION: Look for sustained high latency (> 21ms for 15s)
+    // THERMAL RECOVERY LOGIC: Sustained low load allows exit from thermal mode
     if (longEMA > 21) {
         thermalHighCounter++;
-        if (thermalHighCounter > 900) { // ~15 seconds at 60 FPS
-            thermalPressure = true;
-        }
+        thermalLowCounter = 0;
+        if (thermalHighCounter > 900) thermalPressure = true;
     } else {
         thermalHighCounter = Math.max(0, thermalHighCounter - 1);
+        if (thermalPressure) {
+            thermalLowCounter++;
+            if (thermalLowCounter > 600) { // ~10 seconds of stability
+                thermalPressure = false;
+                thermalLowCounter = 0;
+            }
+        }
     }
 
-    // ANTI-ALIASED STRESS FACTOR 
+    // WEIGHTED STRESS FACTOR (Governor Economy)
     const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67)) + (thermalPressure ? 0.2 : 0);
     rawStress = rawStress * 0.95 + targetStress * 0.05; 
     smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; 
@@ -138,12 +148,12 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
         }
     }
 
-    // SPIKE CLASSIFICATION & CLUSTERING
+    // WEIGHTED SPIKE CLASSIFICATION
     if (delta > 25) {
-        // CLASSIFIER: Is this a rendering spike or an external OS glitch?
-        const isExternal = delta > 50 && clusterStrength === 0;
+        const isIsolated = delta > 50 && clusterStrength === 0;
+        const spikeWeight = isIsolated ? 0.3 : 1.0; // CONFIDENCE WEIGHTING
         
-        if (!isExternal) {
+        if (spikeWeight > 0.5) { // Only cluster real pressure
             totalSpikeCount++;
             if (delta > worstFrameEver) worstFrameEver = delta;
             const timeSinceLastSpike = now - lastSpikeTime;
@@ -156,7 +166,8 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
                 lastTierSwitchTime = now;
             }
         } else if (debugMode) {
-            console.log(`[SOVEREIGN_RESILIENCE] EXTERNAL_SPIKE_IGNORED: ${delta.toFixed(2)}ms`); 
+            // Log isolated hitch but don't force tier drop yet
+            console.log(`[SOVEREIGN_GOV] ISOLATED_HITCH: ${delta.toFixed(2)}ms (Weighted: 0.3)`);
         }
     }
 
@@ -168,6 +179,6 @@ export function cinematicTracer(now: number, debugMode = false, onRegulate?: (fa
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | tier: ${currentTier} | thermal: ${thermalPressure}`);
+        console.log(`[SOVEREIGN_GOV] stress: ${smoothedStress.toFixed(2)} | thermal: ${thermalPressure} | tier: ${currentTier}`);
     }
 }

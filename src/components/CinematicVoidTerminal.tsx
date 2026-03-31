@@ -187,8 +187,9 @@ export const CinematicVoidTerminal: React.FC = () => {
                             {/* HUD INTEGRATION */}
                             <GhostTerminalHUD position={[0, -4, 2]} />
                         </Rig>
-                        {/* FX CHANNEL: Rapidly scale down environment lighting based on stress */}
-                        {(1 - Math.exp(-4 * stress)) < 0.8 && <Environment preset={isOverdrive ? "forest" : "night"} />}
+                        {/* FX CHANNEL: Economic Sacrifice - Kill expensive shadows/lighting first */}
+                        {stress < 0.2 && <Environment preset={isOverdrive ? "forest" : "night"} />}
+                        {stress >= 0.2 && stress < 0.5 && <Environment preset="night" blur={1} />}
                     </Suspense>
                 </Canvas>
             </div>
