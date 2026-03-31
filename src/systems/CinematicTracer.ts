@@ -62,20 +62,32 @@ let currentTier: PerformanceTier = 'DOMINANT';
 // Session Report
 const sessionAudit = {
     avg: 0,
+    p95: 0,
     worst: 0,
     totalSpikes: 0,
     finalStress: 0,
     duration: 0,
-    thermalPressure: false
+    deviceTier: 'UNKNOWN',
+    thermalThrottled: false
 };
 
 const dumpAudit = () => {
+    // Calculate P95 for realistic jitter audit
+    const sorted = [...samples].sort((a, b) => a - b);
+    const p95Index = Math.floor(SAMPLE_SIZE * 0.95);
+    
     sessionAudit.avg = longEMA;
+    sessionAudit.p95 = sorted[p95Index] || 0;
     sessionAudit.worst = worstFrameEver;
     sessionAudit.totalSpikes = totalSpikeCount;
     sessionAudit.finalStress = smoothedStress;
-    sessionAudit.thermalPressure = thermalPressure;
+    sessionAudit.thermalThrottled = thermalPressure;
     sessionAudit.duration = (Date.now() - sessionStart) / 1000;
+    
+    // Auto-Tiering based on initial performance baseline
+    if (longEMA < 17) sessionAudit.deviceTier = 'ELITE';
+    else if (longEMA < 25) sessionAudit.deviceTier = 'MID';
+    else sessionAudit.deviceTier = 'LOW';
     
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const payload = JSON.stringify({ ...sessionAudit, id: "sov_void_v8", ts: Date.now() });
