@@ -4,7 +4,7 @@ import { Float, Text, PerspectiveCamera, Environment, Stars, Html } from '@react
 import * as THREE from 'three';
 import { GhostTerminalHUD } from './GhostTerminalHUD';
 import { useCinematicMetabolism } from '../hooks/useCinematicMetabolism';
-import { cinematicTracer, PerformanceTier } from '../systems/CinematicTracer';
+import { cinematicTracer, PerformanceTier, UserIntent } from '../systems/CinematicTracer';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3D MESSAGE ENTITY
@@ -83,12 +83,12 @@ const DataRain = ({ isOverdrive }: { isOverdrive: boolean }) => {
 // SCROLL RIG
 // ═══════════════════════════════════════════════════════════════════════════
 
-const Rig = ({ children, isOverdrive, isInteracting, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, isInteracting: boolean, onRegulate: (factor: number, tier: PerformanceTier) => void }) => {
+const Rig = ({ children, isOverdrive, intent, onRegulate }: { children: React.ReactNode, isOverdrive: boolean, intent: UserIntent, onRegulate: (factor: number, tier: PerformanceTier) => void }) => {
     const group = useRef<THREE.Group>(null);
     useFrame((state) => {
-        // INSTRUMENTATION: Audit and Regulate Performance (Perceptual SLA)
-        // Pass interaction state to protect quality during engagement
-        cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate, isInteracting);
+        // INSTRUMENTATION: Human-Aware Audit and Regulation
+        // Pass specific intent to protect clarity (typing) or smoothness (scrolling)
+        cinematicTracer(state.clock.elapsedTime * 1000, true, onRegulate, intent);
 
         if (!group.current) return;
         const factor = isOverdrive ? 0.4 : 0.1;
@@ -111,7 +111,7 @@ export const CinematicVoidTerminal: React.FC = () => {
     const { isGlitching, isOverdrive, triggerGlitch, toggleOverdrive } = useCinematicMetabolism();
     const [tier, setTier] = useState<PerformanceTier>('DOMINANT');
     const [stress, setStress] = useState(0);
-    const [isInteracting, setIsInteracting] = useState(false);
+    const [intent, setIntent] = useState<UserIntent>('IDLE');
     const interactionTimeout = useRef<NodeJS.Timeout | null>(null);
 
     const [chatHistory, setChatHistory] = useState([
@@ -120,10 +120,10 @@ export const CinematicVoidTerminal: React.FC = () => {
         { message: "Arhitekte, prostor je bezgraničan. Govori bez okvira.", sender: "ORACLE", timestamp: Date.now() - 3000 }
     ]);
 
-    const handleInteraction = () => {
-        setIsInteracting(true);
+    const handleInteraction = (type: UserIntent) => {
+        setIntent(type);
         if (interactionTimeout.current) clearTimeout(interactionTimeout.current);
-        interactionTimeout.current = setTimeout(() => setIsInteracting(false), 500);
+        interactionTimeout.current = setTimeout(() => setIntent('IDLE'), 1000);
     };
 
     const handleRegulate = (s: number, t: PerformanceTier) => {
@@ -133,17 +133,22 @@ export const CinematicVoidTerminal: React.FC = () => {
 
     React.useEffect(() => {
         const handleKeys = (e: KeyboardEvent) => {
-            handleInteraction(); // Track intent
+            handleInteraction('TYPING'); // Priority focus on clarity
             if (e.key === 'o' || e.key === 'O') {
                 toggleOverdrive();
                 triggerGlitch(500);
             }
         };
+        const handleScroll = () => handleInteraction('SCROLLING');
+        const handleMouse = () => handleInteraction('POINTER');
+
         window.addEventListener('keydown', handleKeys);
-        window.addEventListener('mousemove', handleInteraction);
+        window.addEventListener('wheel', handleScroll, { passive: true });
+        window.addEventListener('mousemove', handleMouse);
         return () => {
             window.removeEventListener('keydown', handleKeys);
-            window.removeEventListener('mousemove', handleInteraction);
+            window.removeEventListener('wheel', handleScroll);
+            window.removeEventListener('mousemove', handleMouse);
         };
     }, [toggleOverdrive, triggerGlitch]);
     
@@ -184,7 +189,7 @@ export const CinematicVoidTerminal: React.FC = () => {
                     />
                     
                     <Suspense fallback={null}>
-                        <Rig isOverdrive={isOverdrive} isInteracting={isInteracting} onRegulate={handleRegulate}>
+                        <Rig isOverdrive={isOverdrive} intent={intent} onRegulate={handleRegulate}>
                             <group position={[0, -1, 0]}>
                                 {chatHistory.map((chat, i) => (
                                     <FloatingMessage 

@@ -34,10 +34,24 @@ let thermalHighCounter = 0;
 let thermalLowCounter = 0;
 
 // RE-ENTRY WARMUP
-let warmupCounter = 0;
-const WARMUP_FRAMES = 30;
+let warmupStartTime = 0;
+const WARMUP_DURATION = 500; // ms
 
-// STRESS SCALING (Economic Model)
+// INTENT SYSTEM
+export type UserIntent = 'TYPING' | 'SCROLLING' | 'POINTER' | 'IDLE';
+let currentIntent: UserIntent = 'IDLE';
+let smoothedIntentWeight = 1.0;
+let lastIntentSwitchTime = 0;
+const INTENT_LOCK_DURATION = 500; // ms
+
+const INTENT_WEIGHTS: Record<UserIntent, number> = {
+    TYPING: 0.6,    // High sensitivity to clarity
+    SCROLLING: 0.8, // Medium sensitivity to smoothness
+    POINTER: 0.9,   // Low sensitivity to jitter
+    IDLE: 1.0       // No protection
+};
+
+// STRESS SCALING
 let rawStress = 0;
 let smoothedStress = 0; 
 let lowStressStableSince = 0;
@@ -77,7 +91,7 @@ if (typeof window !== 'undefined') {
             shortEMA = 16.67;
             rawStress = 0;
             smoothedStress = smoothedStress * 0.5; 
-            warmupCounter = WARMUP_FRAMES; // START WARMUP
+            warmupStartTime = performance.now(); // Start Adaptive Warmup
             lastTime = 0; 
         }
     });
@@ -90,7 +104,7 @@ export function cinematicTracer(
     now: number, 
     debugMode = false, 
     onRegulate?: (factor: number, tier: PerformanceTier) => void,
-    isInteracting = false
+    intent: UserIntent = 'IDLE'
 ) {
     if (!debugMode) return;
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -106,6 +120,16 @@ export function cinematicTracer(
     // UPDATE EMA: Fast vs Slow stability
     shortEMA = delta * ALPHA_SHORT + shortEMA * (1 - ALPHA_SHORT);
     longEMA = delta * ALPHA_LONG + longEMA * (1 - ALPHA_LONG);
+
+    // HUMAN INTENT SMOOTHING & LOCKING
+    const timeSinceIntentSwitch = now - lastIntentSwitchTime;
+    if (intent !== currentIntent && timeSinceIntentSwitch > INTENT_LOCK_DURATION) {
+        currentIntent = intent;
+        lastIntentSwitchTime = now;
+    }
+    
+    const targetWeight = INTENT_WEIGHTS[currentIntent];
+    smoothedIntentWeight = smoothedIntentWeight * 0.8 + targetWeight * 0.2; // Smooth intent transition
 
     // THERMAL RECOVERY LOGIC
     if (longEMA > 21) {
@@ -123,13 +147,13 @@ export function cinematicTracer(
         }
     }
 
-    // WEIGHTED STRESS FACTOR (Governor Economy)
+    // WEIGHTED STRESS FACTOR 
     const targetStress = Math.min(1, Math.max(0, (shortEMA - 16.67) / 16.67)) + (thermalPressure ? 0.2 : 0);
     rawStress = rawStress * 0.95 + targetStress * 0.05; 
     smoothedStress = smoothedStress * 0.9 + rawStress * 0.1; 
 
-    // INTENT-AWARE MODULATION: If user is interacting, we "downplay" the stress to protect quality
-    const effectiveStress = isInteracting ? smoothedStress * 0.7 : smoothedStress;
+    // INTENT-AWARE MODULATION (The Sovereign Mind)
+    const effectiveStress = smoothedStress * smoothedIntentWeight;
 
     // HYSTERESIS & CONFIDENCE WINDOW
     const timeSinceSwitch = now - lastTierSwitchTime;
@@ -140,9 +164,8 @@ export function cinematicTracer(
     }
     const bypassCooldown = (lowStressStableSince !== 0 && (now - lowStressStableSince > 500)); 
 
-    // RE-ENTRY WARMUP GUARD: Skip regulation during warmup frames
-    if (warmupCounter > 0) {
-        warmupCounter--;
+    // TIME-BASED ADAPTIVE WARMUP 
+    if (warmupStartTime !== 0 && (now - warmupStartTime < WARMUP_DURATION)) {
         return;
     }
 
@@ -166,7 +189,7 @@ export function cinematicTracer(
         }
     }
 
-    // WEIGHTED SPIKE CLASSIFICATION
+    // SPIKE CLASSIFICATION
     if (delta > 25) {
         const isIsolated = delta > 50 && clusterStrength === 0;
         const spikeWeight = isIsolated ? 0.3 : 1.0; 
@@ -194,6 +217,6 @@ export function cinematicTracer(
     frameCount++;
 
     if (frameCount % SAMPLE_SIZE === 0 && debugMode) {
-        console.log(`[SOVEREIGN_GOV] stress: ${effectiveStress.toFixed(2)} | interacting: ${isInteracting} | warm: ${warmupCounter}`);
+        console.log(`[SOVEREIGN_GOV] stress: ${effectiveStress.toFixed(2)} | intent: ${currentIntent} | smoothed: ${smoothedIntentWeight.toFixed(2)}`);
     }
 }
