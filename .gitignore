@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-cinematic
+.env
+.DS_Store
+*.log
