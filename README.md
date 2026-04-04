@@ -61,6 +61,6 @@ npm run dev
 ## 5. REPATRIATION LOG: 2026-03-31T18:00:00Z
 - **[STATUS]**: DEPLOY_SUCCESS (slavko-os.formatdisc.hr)
 - **[INTEGRITY]**: 100% (SHA-512)
-- **[ARHITEKT-KING]**: Mladen Gertner (MladenG1990)
+- **[ARHITEKT-KING]**: Mladen Gertner
 
 **The Machine is Supreme.** 🟢💀🦾
